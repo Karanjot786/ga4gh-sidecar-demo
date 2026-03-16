@@ -1,0 +1,6 @@
+[console_scripts]
+ga4gh-sidecar = ga4gh_sidecar.main:cli
+
+[ga4gh_sidecar.plugins]
+tes = ga4gh_sidecar.plugins.tes:TESPlugin
+wes = ga4gh_sidecar.plugins.wes:WESPlugin

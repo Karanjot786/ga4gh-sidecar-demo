@@ -1,0 +1,30 @@
+services:
+  mock-tes:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/service-info')" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SIDECAR_CONFIG_PATH=/app/config.yaml
+    depends_on:
+      mock-tes:
+        condition: service_healthy
+    # Override backend_url to point to the mock-tes service
+    command: >
+      sh -c "
+        sed 's|http://localhost:9090|http://mock-tes:9090|' /app/config.yaml > /tmp/config.yaml &&
+        SIDECAR_CONFIG_PATH=/tmp/config.yaml uvicorn ga4gh_sidecar.main:app --host 0.0.0.0 --port 8080
+      "
