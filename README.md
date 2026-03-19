@@ -1,65 +1,65 @@
-# GA4GH ServiceInfo Sidecar
+# ga4gh-sidecar
 
-A reverse proxy sidecar for GA4GH services that intercepts `/service-info` requests, dynamically merges metadata from operator config and backend services, and forwards all other traffic unchanged.
-
-<!-- **This is a demo prototype built as part of a [GSoC 2026 proposal](https://summerofcode.withgoogle.com/) for the [Global Alliance for Genomics and Health (GA4GH)](https://www.ga4gh.org/).** -->
-
-## What It Does
+A reverse proxy that sits in front of any GA4GH service, takes over the `/service-info` endpoint, and leaves everything else alone.
 
 ```
-Client → Sidecar (port 8080) → Backend GA4GH Service (port 9090)
-                |
-                ├── GET /service-info  → Returns merged response (sidecar config + backend)
-                ├── GET /health        → Returns health status
-                └── Everything else    → Forwarded to backend unchanged
+Client → Sidecar (port 8080) → Backend (port 9090)
+              |
+              ├── GET /service-info  → merged response from config + backend
+              ├── GET /health        → health status
+              └── anything else      → forwarded to backend as-is
 ```
 
-The sidecar solves a real problem: every GA4GH implementation (Funnel, Cromwell, TESK, Dockstore) handles `/service-info` inside its own codebase. When you deploy three services, you get three inconsistent responses and three places to update metadata. The sidecar centralizes this.
+## Why this exists
 
-## Quick Start
+Every GA4GH implementation handles `/service-info` differently. Funnel returns one shape, Cromwell another, TESK another. If you run three services, you get three inconsistent responses and three config files to keep in sync.
 
-### Option 1: Run locally (no Docker)
+The sidecar pulls that logic out. You configure identity fields (who you are, how to reach you) in one YAML file, and the sidecar merges them with whatever the backend reports about its own capabilities. One place to update, consistent responses everywhere.
+
+## Get it running
+
+### Locally (no Docker)
 
 ```bash
-# Install the package
 pip install -e ".[dev]"
 
-# Start the mock TES backend
+# start the mock TES backend
 uvicorn mock_backend.app:app --port 9090 &
 
-# Start the sidecar
+# start the sidecar
 uvicorn ga4gh_sidecar.main:app --port 8080
 
-# In another terminal:
+# try it
 curl http://localhost:8080/service-info | python -m json.tool
 curl -X POST http://localhost:8080/tasks -H "Content-Type: application/json" -d '{"name": "test"}'
 curl http://localhost:8080/health
 ```
 
-### Option 2: Docker Compose
+### With Docker Compose
 
 ```bash
 docker compose up --build
 
-# Test it:
 curl http://localhost:8080/service-info | python -m json.tool
 ```
 
-## How the Merge Works
+## How the merge works
 
-The sidecar polls the backend's `/service-info` every 15 seconds and merges it with the operator's config:
+The sidecar polls the backend's `/service-info` every 15 seconds and combines it with your config. The precedence rules are explicit:
 
-| Field | Who Wins | Why |
-|-------|----------|-----|
-| `id`, `name`, `organization` | **Sidecar config** | Operator controls identity |
-| `contactUrl`, `environment` | **Sidecar config** | Operator controls ops metadata |
-| `storage`, `workflow_type_versions` | **Backend** | Backend knows its capabilities |
-| `extension` (nested) | **Recursively merged** | Both can contribute |
-| `createdAt`, `updatedAt` | **Backend** | Backend tracks its own lifecycle |
+| Field | Winner | Reason |
+|-------|--------|--------|
+| `id`, `name`, `organization` | Your config | You control who you are |
+| `contactUrl`, `environment` | Your config | Ops metadata is yours |
+| `storage`, `workflow_type_versions` | Backend | It knows what it supports |
+| `extension` (nested objects) | Both, recursively merged | Either side can add fields |
+| `createdAt`, `updatedAt` | Backend | It tracks its own lifecycle |
 
-## Plugin System
+The rules are two sets of field names in `merger.py`. Takes about 30 seconds to read.
 
-Plugins enrich the `/service-info` response with service-specific metadata:
+## Plugins
+
+Plugins run after the merge and can add or change fields in the response. Writing one looks like this:
 
 ```python
 from ga4gh_sidecar.plugins.base import SidecarPlugin
@@ -73,13 +73,15 @@ class MyPlugin(SidecarPlugin):
         return response
 ```
 
-Built-in plugins:
-- **TES** — injects `storage` protocols
-- **WES** — injects `workflow_type_versions`
+Ships with two plugins:
+- **tes** — adds `storage` protocols (s3, gs, file, etc.)
+- **wes** — adds `workflow_type_versions` (CWL, WDL)
+
+Register your own via Python entry points in `pyproject.toml`.
 
 ## Configuration
 
-See [`config.yaml`](config.yaml) for the full config schema. Key fields:
+See `config.yaml` for a full example. The minimum you need:
 
 ```yaml
 service_info:
@@ -106,25 +108,40 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-## Project Structure
+25 tests, under a second. Config loading, merge precedence, plugin ordering, mock backend integration.
+
+## Performance
+
+Benchmarks run on MacBook Pro, localhost, `hey` 1000 requests 10 concurrent.
+
+| Path | p50 | p95 | p99 | RPS |
+|------|-----|-----|-----|-----|
+| `GET /service-info` (cached) | 0.9ms | 3.9ms | 41.6ms | 5348 |
+| `GET /tasks` (forwarded) | 10.3ms | 27.3ms | 64.0ms | 749 |
+
+All 2000 requests returned 200.
+
+The `/service-info` path serves a cached in-memory response with no backend call. The `/tasks` numbers include the mock backend's own response time. Sidecar proxy overhead on forwarded paths is the difference between these two baselines. Expect lower absolute latency on server hardware with a real backend over a local network.
+
+## Layout
 
 ```
 ├── src/ga4gh_sidecar/
 │   ├── main.py          # FastAPI app, routes, lifespan
 │   ├── config.py        # Pydantic config models
 │   ├── proxy.py         # httpx reverse proxy
-│   ├── merger.py        # Deep merge algorithm + cache
+│   ├── merger.py        # merge algorithm + background cache
 │   └── plugins/
-│       ├── base.py      # Plugin ABC + chain
+│       ├── base.py      # plugin ABC + chain
 │       ├── tes.py       # TES storage plugin
 │       └── wes.py       # WES workflow plugin
 ├── mock_backend/
-│   └── app.py           # Mock TES backend
-├── tests/               # pytest test suite
-├── config.yaml          # Example configuration
-├── Dockerfile           # Multi-stage, non-root
-├── docker-compose.yml   # Sidecar + mock backend
-└── pyproject.toml       # Package config
+│   └── app.py           # mock TES for testing
+├── tests/               # pytest suite
+├── config.yaml          # example config
+├── Dockerfile           # multi-stage, non-root
+├── docker-compose.yml   # sidecar + mock backend
+└── pyproject.toml
 ```
 
 ## License
