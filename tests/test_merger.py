@@ -1,7 +1,5 @@
 """Tests for the deep merge algorithm."""
 
-import pytest
-
 from ga4gh_sidecar.merger import merge_service_info
 
 

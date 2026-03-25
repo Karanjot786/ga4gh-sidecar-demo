@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import httpx
 from fastapi import Request, Response
-from fastapi.responses import StreamingResponse
 
 # Headers that must not be forwarded between hops (RFC 2616 Section 13.5.1)
 HOP_BY_HOP_HEADERS: set[str] = {

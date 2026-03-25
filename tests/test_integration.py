@@ -1,10 +1,5 @@
 """Integration tests — spin up sidecar + mock backend in-process."""
 
-import asyncio
-from typing import Any
-
-import pytest
-import httpx
 from fastapi.testclient import TestClient
 
 from mock_backend.app import app as mock_app

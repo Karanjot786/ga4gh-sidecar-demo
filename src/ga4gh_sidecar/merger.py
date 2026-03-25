@@ -76,9 +76,7 @@ def merge_service_info(
     return merged
 
 
-def _deep_merge_dicts(
-    base: dict[str, Any], override: dict[str, Any]
-) -> dict[str, Any]:
+def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge two dicts. Override values take precedence for scalars."""
     result = dict(base)
     for key, val in override.items():

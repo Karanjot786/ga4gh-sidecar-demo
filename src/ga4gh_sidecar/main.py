@@ -37,9 +37,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         entry = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -136,8 +134,7 @@ async def lifespan(app: FastAPI):
     )
 
     logger.info(
-        f"Sidecar started — listening on :{_config.listen_port}, "
-        f"backend={_config.backend_url}"
+        f"Sidecar started — listening on :{_config.listen_port}, backend={_config.backend_url}"
     )
 
     yield

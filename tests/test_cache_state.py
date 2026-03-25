@@ -1,6 +1,6 @@
 """Tests for the cache state machine and ServiceInfoCache lifecycle."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest

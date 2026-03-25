@@ -1,9 +1,7 @@
 """Tests for the configuration loading."""
 
-import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
 
 from ga4gh_sidecar.config import SidecarConfig
