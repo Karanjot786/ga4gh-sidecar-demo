@@ -224,6 +224,43 @@ The `/service-info` path serves a cached in-memory response with no backend call
 └── pyproject.toml
 ```
 
+## Full project structure (GSoC target)
+
+```
+ga4gh-sidecar/
+├── src/ga4gh_sidecar/
+│   ├── __init__.py
+│   ├── app.py              # FastAPI application, lifespan, route mounting
+│   ├── proxy.py            # ReverseProxy with httpx connection pooling
+│   ├── merge.py            # deep merge algorithm
+│   ├── allof.py            # allOf schema resolution
+│   ├── cache.py            # ServiceInfoCache with state machine lifecycle
+│   ├── config.py           # Pydantic config model, YAML loading
+│   ├── health.py           # /health endpoint with cache state reporting
+│   ├── logging.py          # structured JSON log formatter
+│   ├── plugins/
+│   │   ├── base.py         # SidecarPlugin ABC
+│   │   ├── chain.py        # PluginChain executor
+│   │   ├── tes.py          # TES storage plugin
+│   │   ├── wes.py          # WES workflow plugin
+│   │   └── attestation.py  # TEE attestation plugin (RATS RFC 9334)
+│   └── security/
+│       ├── tls.py          # TLS 1.3 termination
+│       ├── rate_limit.py   # TokenBucketRateLimiter
+│       └── oauth.py        # Bearer token validation
+├── tests/
+├── schemas/
+│   ├── service-info-1.0.0.yaml
+│   └── tes-1.1.0.yaml
+├── helm/
+│   └── ga4gh-sidecar/
+├── Dockerfile
+├── docker-compose.yaml
+└── pyproject.toml
+```
+
+The current prototype implements `main.py`, `config.py`, `proxy.py`, `merger.py`, and `plugins/`. The remaining modules are part of the GSoC scope.
+
 ## License
 
 Apache 2.0
