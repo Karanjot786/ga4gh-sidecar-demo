@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ga4gh_sidecar.config import SidecarConfig
-from ga4gh_sidecar.merger import ServiceInfoCache
+from ga4gh_sidecar.merger import CacheState, ServiceInfoCache
 from ga4gh_sidecar.plugins.base import PluginChain, SidecarPlugin
 from ga4gh_sidecar.plugins.tes import TESPlugin
 from ga4gh_sidecar.plugins.wes import WESPlugin
@@ -145,13 +145,27 @@ async def get_service_info() -> dict[str, Any]:
 
 
 @app.get("/health")
-async def health_check() -> dict[str, Any]:
-    """Health check endpoint for Kubernetes probes."""
-    return {
-        "status": "healthy",
+async def health_check():
+    """Health check endpoint for Kubernetes probes.
+
+    Returns 200 for all states except ERROR (503).
+    COLD returns 200 because the sidecar can serve config-only
+    responses before the first backend poll completes.
+    """
+    cache_state = _cache.cache_state if _cache else CacheState.COLD
+    is_error = cache_state == CacheState.ERROR
+
+    body = {
+        "status": "degraded" if is_error else "healthy",
+        "cache_state": cache_state.value,
         "backend_reachable": _cache.is_backend_healthy if _cache else False,
+        "last_fetch_age_seconds": _cache.last_fetch_age_seconds if _cache else None,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+    if is_error:
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 @app.api_route(
