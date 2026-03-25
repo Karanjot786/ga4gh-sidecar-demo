@@ -6,6 +6,7 @@ loads plugins, starts background polling, and routes requests.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -26,10 +27,33 @@ from ga4gh_sidecar.plugins.tes import TESPlugin
 from ga4gh_sidecar.plugins.wes import WESPlugin
 from ga4gh_sidecar.proxy import reverse_proxy
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+
+class JsonFormatter(logging.Formatter):
+    """Structured JSON log formatter.
+
+    Each log entry is a single-line JSON object with timestamp, level,
+    logger, and message fields. Exception info is included when present.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "timestamp": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[1]:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+logging.root.handlers = [handler]
+logging.root.setLevel(logging.INFO)
+
 logger = logging.getLogger("ga4gh_sidecar")
 
 # Available built-in plugins
