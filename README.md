@@ -117,6 +117,70 @@ plugins:
       override_protocols: ["s3", "gs"]
 ```
 
+## Full configuration reference
+
+```yaml
+# GA4GH ServiceInfo Sidecar Configuration
+# Full reference: all fields with defaults and comments.
+
+listen_port: 8080
+backend_url: "http://localhost:9090"
+
+tls:
+  enabled: false
+  cert_file: /etc/sidecar/tls/tls.crt
+  key_file: /etc/sidecar/tls/tls.key
+  min_version: "1.3"
+
+service_info:
+  id: "org.ga4gh.demo.tes"
+  name: "GA4GH Demo TES (via Sidecar)"
+  type:
+    group: "org.ga4gh"
+    artifact: "tes"
+    version: "1.1.0"
+  organization:
+    name: "GA4GH Demo Institute"
+    url: "https://demo.ga4gh.org"
+  description: "A TES endpoint protected by the GA4GH ServiceInfo Sidecar."
+  contactUrl: "mailto:ops@demo.ga4gh.org"
+  documentationUrl: "https://docs.demo.ga4gh.org/tes"
+  environment: "development"
+  version: "2.0.0"
+
+merge:
+  mode: "merge"                    # "merge" or "override"
+  poll_interval_seconds: 15
+  backend_timeout_seconds: 5
+  fallback: "serve_config_only"    # "serve_config_only" or "return_503"
+  custom_schema_url: null          # optional: URL to a custom OpenAPI schema
+
+security:
+  rate_limit:
+    requests_per_second: 100
+    burst: 200
+  cors:
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "OPTIONS"]
+  oauth:
+    enabled: false
+    jwks_url: "https://auth.example.org/.well-known/jwks.json"
+
+attestation:
+  enabled: false
+  tee_type: "auto"                 # "auto", "intel_tdx", "amd_sev_snp"
+  provider: "mock"                 # "azure", "intel_trust_authority", "gcp", "mock"
+  cache_ttl_seconds: 300
+  model: "passport"                # "passport" or "background_check"
+
+plugins:
+  enabled:
+    - "tes"
+  config:
+    tes:
+      override_protocols: ["s3", "gs"]
+```
+
 ## Tests
 
 ```bash
