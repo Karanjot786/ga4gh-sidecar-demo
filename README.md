@@ -57,6 +57,22 @@ The sidecar polls the backend's `/service-info` every 15 seconds and combines it
 
 The rules are two sets of field names in `merger.py`. Takes about 30 seconds to read.
 
+## Merge modes
+
+The sidecar supports two modes: `merge` (default) and `override`.
+
+- `merge`: combines backend and config responses using the precedence rules above
+- `override`: ignores the backend's `/service-info` entirely, returns config as the complete response
+
+Set it in config:
+
+```yaml
+merge:
+  mode: "merge"  # or "override"
+```
+
+Override mode covers deployments where the backend's `/service-info` is broken, stale, or nonexistent.
+
 ## Plugins
 
 Plugins run after the merge and can add or change fields in the response. Writing one looks like this:
