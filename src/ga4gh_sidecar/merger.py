@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -105,11 +106,38 @@ def _merge_lists(a: list, b: list) -> list:
     return merged
 
 
+class CacheState(str, Enum):
+    """Cache lifecycle states.
+
+    COLD       → never fetched from backend
+    WARMING    → first fetch in progress
+    WARM       → valid cached data available
+    REFRESHING → background refresh running (have valid data)
+    ERROR      → last fetch failed
+    """
+
+    COLD = "COLD"
+    WARMING = "WARMING"
+    WARM = "WARM"
+    REFRESHING = "REFRESHING"
+    ERROR = "ERROR"
+
+
 class ServiceInfoCache:
     """Manages the cached, merged /service-info response.
 
     Polls the backend on an interval, merges with sidecar config,
-    runs plugins, and stores the result in memory.
+    runs plugins, and stores the result in memory. Uses a persistent
+    httpx.AsyncClient for connection reuse across poll cycles.
+
+    Cache state transitions:
+        COLD → WARMING  (first poll starts)
+        WARMING → WARM  (first poll succeeds)
+        WARMING → ERROR (first poll fails)
+        WARM → REFRESHING (subsequent poll starts)
+        REFRESHING → WARM (subsequent poll succeeds)
+        REFRESHING → ERROR (subsequent poll fails)
+        ERROR → WARMING  (retry poll starts)
     """
 
     def __init__(
@@ -130,6 +158,7 @@ class ServiceInfoCache:
         self._cached: dict[str, Any] = dict(sidecar_config)
         self._last_backend_response: dict[str, Any] | None = None
         self._last_poll: datetime | None = None
+        self._cache_state: CacheState = CacheState.COLD
         self._backend_healthy: bool = False
         self._poll_task: asyncio.Task | None = None
         self._plugins: list = []
@@ -137,6 +166,24 @@ class ServiceInfoCache:
     @property
     def cached_response(self) -> dict[str, Any]:
         return dict(self._cached)
+
+    @property
+    def cache_state(self) -> CacheState:
+        """Current cache lifecycle state."""
+        return self._cache_state
+
+    @property
+    def last_poll_time(self) -> datetime | None:
+        """Timestamp of the last successful poll."""
+        return self._last_poll
+
+    @property
+    def last_fetch_age_seconds(self) -> float | None:
+        """Seconds since the last successful backend fetch, or None if never fetched."""
+        if self._last_poll is None:
+            return None
+        delta = datetime.now(timezone.utc) - self._last_poll
+        return round(delta.total_seconds(), 1)
 
     @property
     def is_backend_healthy(self) -> bool:
@@ -170,15 +217,21 @@ class ServiceInfoCache:
 
     async def _poll_backend(self) -> None:
         """Fetch backend /service-info, merge, and update cache."""
+        # Transition to the appropriate "in-progress" state
+        if self._cache_state == CacheState.COLD or self._cache_state == CacheState.ERROR:
+            self._cache_state = CacheState.WARMING
+        elif self._cache_state == CacheState.WARM:
+            self._cache_state = CacheState.REFRESHING
+
         try:
-            async with httpx.AsyncClient(timeout=self._backend_timeout) as client:
-                resp = await client.get(f"{self._backend_url}/service-info")
-                resp.raise_for_status()
-                backend_data = resp.json()
+            resp = await self._client.get(f"{self._backend_url}/service-info")
+            resp.raise_for_status()
+            backend_data = resp.json()
 
             self._last_backend_response = backend_data
             self._backend_healthy = True
             self._last_poll = datetime.now(timezone.utc)
+            self._cache_state = CacheState.WARM
 
             # Merge sidecar config with backend response
             merged = merge_service_info(self._sidecar_config, backend_data)
@@ -188,11 +241,18 @@ class ServiceInfoCache:
                 merged = await plugin.enrich_service_info(merged)
 
             self._cached = merged
-            logger.info("Polled backend /service-info successfully, cache updated.")
+            logger.info(
+                "Polled backend /service-info successfully, "
+                f"cache state: {self._cache_state.value}."
+            )
 
         except (httpx.HTTPError, httpx.ConnectError, Exception) as e:
             self._backend_healthy = False
-            logger.warning(f"Failed to poll backend /service-info: {e}")
+            self._cache_state = CacheState.ERROR
+            logger.warning(
+                f"Failed to poll backend /service-info: {e}, "
+                f"cache state: {self._cache_state.value}."
+            )
 
             if self._fallback == "serve_config_only":
                 # Use sidecar config only, still run plugins
